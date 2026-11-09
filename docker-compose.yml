@@ -1,0 +1,119 @@
+services:
+
+  discovery-server:
+    image: siwarsrairi/discovery-server:1.0
+    ports: ["8761:8761"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --https-port=30443 --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: https://foodie.test:30443
+      KC_HTTPS_CERTIFICATE_FILE: /certs/tls.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /certs/tls.key
+    ports: ["30443:30443"]
+    volumes:
+      - ./certs:/certs:ro
+      - ./realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - ./kc-data:/opt/keycloak/data/h2
+    restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - foodie.test
+
+  api-gateway:
+    image: siwarsrairi/api-gateway:1.2
+    ports: ["8080:8080"]
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      FDP_SECURITY_JWK_SET_URI: http://keycloak:8080/realms/fdp/protocol/openid-connect/certs
+    depends_on: [discovery-server, redis, keycloak]
+    restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - api-gateway.food-delivery.svc.cluster.local
+
+  customer-service:
+    image: siwarsrairi/customer-service:1.1
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/customers
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      FDP_SECURITY_JWK_SET_URI: http://keycloak:8080/realms/fdp/protocol/openid-connect/certs
+    depends_on: [discovery-server, postgres, keycloak]
+    restart: unless-stopped
+
+  restaurant-service:
+    image: siwarsrairi/restaurant-service:1.0
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/restaurants
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      FDP_SECURITY_JWK_SET_URI: http://keycloak:8080/realms/fdp/protocol/openid-connect/certs
+    depends_on: [discovery-server, postgres, keycloak]
+    restart: unless-stopped
+
+  order-service:
+    image: siwarsrairi/order-service:1.0
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/orders
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on: [discovery-server, postgres]
+    restart: unless-stopped
+
+  delivery-service:
+    image: siwarsrairi/delivery-service:1.0
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/deliveries
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on: [discovery-server, postgres]
+    restart: unless-stopped
+
+  notification-service:
+    image: siwarsrairi/notification-service:1.0
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_MONGODB_URI: mongodb://mongo:27017/notifications
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/notifications
+    depends_on: [discovery-server, mongo]
+    restart: unless-stopped
+
+  food-delivery-frontend:
+    image: siwarsrairi/food-delivery-frontend:1.2
+    ports: ["3000:80", "3443:443"]
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+      - ./default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api-gateway]
+    restart: unless-stopped
