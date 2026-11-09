@@ -32,7 +32,7 @@ services:
       KC_HOSTNAME: https://foodie.test:30443
       KC_HTTPS_CERTIFICATE_FILE: /certs/tls.crt
       KC_HTTPS_CERTIFICATE_KEY_FILE: /certs/tls.key
-    ports: ["30443:30443"]
+    ports: ["30443:30443", "8081:8080"]
     volumes:
       - ./certs:/certs:ro
       - ./realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
